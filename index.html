@@ -235,4 +235,57 @@ function renderAll(){
   $('mList').innerHTML='';
   songs.forEach((s,i)=>{
     const d=document.createElement('div');d.className='msong';
-    d.innerHTML=`<img src="${s.art||''}" onerror="this.style.opacity=0"><div><div class="t">${s.title
+    d.innerHTML=`<img src="${s.art||''}" onerror="this.style.opacity=0"><div><div class="t">${s.title||'Unknown'}</div><div class="m">${s.artist||'Unknown'} • ${s.album||''}</div></div>`;
+    d.onclick=()=>play(i);$('mList').appendChild(d);
+  });
+}
+
+function play(i){
+  idx=i;const s=songs[i];
+  audio.src=s.buf?URL.createObjectURL(new Blob([s.buf],{type:s.type})):s.url;
+  audio.play();
+  $('dTitle').textContent=s.title||'Unknown';$('dArtist').textContent=(s.artist||'')+' — '+(s.album||'');
+  $('dArt').src=s.art||'';document.querySelectorAll('#dBody tr').forEach((r,j)=>r.classList.toggle('on',j===i));
+  $('mTitle2').textContent=s.title||'Unknown';$('mArtist2').textContent=s.artist||'Unknown';$('mAlbum').textContent=s.album||'';
+  $('mArt').src=s.art||'';$('mArt2').src=s.art||'';$('mTitle').textContent=s.title||'Unknown';$('mArtist').textContent=s.artist||'Unknown';
+  $('dPlay').textContent=$('mPlay').textContent=$('mBtn').textContent='⏸';
+  lyrics=parseLyrics(s.lyrics||'');
+  $('mLyr').innerHTML=lyrics.map((l,j)=>`<div class="mlyr-line" id="L${j}">${l.x}</div>`).join('');
+}
+
+function onTime(){
+  const t=audio.currentTime,d=audio.duration||0;
+  $('dSeek').value=t;$('dSeek').max=d;$('mSeek').value=t;$('mSeek').max=d;
+  if(!lyrics.length)return;
+  let ci=0;
+  if(lyrics[lyrics.length-1].t===0&&d){ci=Math.floor((t/d)*lyrics.length)}
+  else{for(let i=0;i<lyrics.length;i++)if(t>=lyrics[i].t)ci=i}
+  document.querySelectorAll('.mlyr-line').forEach((el,j)=>{el.classList.toggle('on',j===ci);if(j===ci)el.scrollIntoView({behavior:'smooth',block:'center'})});
+}
+
+function onMeta(){
+  const d=audio.duration;if(!d||isNaN(d))return;
+  const s=songs[idx];if(!s)return;
+  durs[s.url]=d;renderAll();
+}
+
+function toggle(){if(audio.paused){audio.play();$('dPlay').textContent=$('mPlay').textContent=$('mBtn').textContent='⏸'}else{audio.pause();$('dPlay').textContent=$('mPlay').textContent=$('mBtn').textContent='▶'}}
+function prev(){if(idx>0)play(idx-1)}
+function next(){if(idx<songs.length-1)play(idx+1)}
+
+async function addFiles(e){
+  for(const f of e.target.files){
+    const buf=await f.arrayBuffer(),n=f.name.replace(/\.[^.]+$/,'');
+    const s=await new Promise(r=>readTags(buf,t=>r({...t,title:t.title||n,artist:t.artist||'Unknown',album:t.album||'Unknown',type:f.type,buf})));
+    await set('s_'+Date.now()+'_'+n,s);
+    if(cur==='local'){songs.push(s);renderAll();}
+  }
+}
+
+window.switchTab=(t,el)=>{cur=t;document.querySelectorAll('.mtab').forEach(x=>x.classList.remove('active'));el.classList.add('active');t==='cloud'?loadCloud():loadLocal()};
+window.toggle=toggle;window.prev=prev;window.next=next;window.addFiles=addFiles;window.onTime=onTime;window.onMeta=onMeta;
+
+loadCloud();
+</script>
+</body>
+</html>
