@@ -90,43 +90,83 @@ const USER='beyondcodertg-pixel';
 const REPO='MusicPlayer';
 const BASE=`https://raw.githubusercontent.com/${USER}/${REPO}/main`;
 
+// ---- Tiny ID3v2 Tag Reader ----
+function readID3(ab){
+  const u=new Uint8Array(ab),d=new TextDecoder();
+  if(d.decode(u.slice(0,3))!=='ID3') return {};
+  const v=u[3],f=u[5];
+  let o=10,s=((u[6]&0x7f)<<21)|((u[7]&0x7f)<<14)|((u[8]&0x7f)<<7)|(u[9]&0x7f);
+  if(f&0x40){o+=((u[10]&0x7f)<<21)|((u[11]&0x7f)<<14)|((u[12]&0x7f)<<7)|(u[13]&0x7f)+4;}
+  const r={};
+  while(o<s+10){
+    const id=d.decode(u.slice(o,o+4));
+    if(!id||id[0]==='\0') break;
+    const fs=v===4?(((u[o+4]&0x7f)<<21)|((u[o+5]&0x7f)<<14)|((u[o+6]&0x7f)<<7)|(u[o+7]&0x7f)):(u[o+4]*16777216+u[o+5]*65536+u[o+6]*256+u[o+7]);
+    const enc=u[o+10],raw=u.slice(o+11,o+10+fs);
+    const dec=enc===1?new TextDecoder('utf-16le'):enc===2?new TextDecoder('utf-16be'):d;
+    let txt=dec.decode(raw).replace(/\0/g,'');
+    if(id==='TIT2') r.title=txt;
+    if(id==='TPE1') r.artist=txt;
+    if(id==='TALB') r.album=txt;
+    if(id==='USLT'){
+      let i=3; while(i<raw.length&&raw[i]!==0)i++; i++;
+      if(enc===1||enc===2){while(i<raw.length-1&&!(raw[i]===0&&raw[i+1]===0))i+=2; i+=2;}
+      else{while(i<raw.length&&raw[i]!==0)i++; i++;}
+      r.lyrics=dec.decode(raw.slice(i)).replace(/\0/g,'');
+    }
+    o+=10+fs;
+  }
+  return r;
+}
+
+// Fetch & cache metadata from a remote MP3
+async function meta(url,key){
+  let c=await get('m_'+key); if(c) return c;
+  try{const b=await(await fetch(url)).arrayBuffer(); c=readID3(b); await set('m_'+key,c);}catch(e){}
+  return c||{};
+}
+
 async function loadCloud(){
   try{
-    let art={},lyr={};
+    let art={};
     try{const a=await(await fetch(`https://api.github.com/repos/${USER}/${REPO}/contents/Art`)).json();a.forEach(f=>art[f.name.replace(/\.[^.]+$/,'')]=`${BASE}/Art/${f.name}`)}catch(e){}
-    try{lyr=await(await fetch(`${BASE}/lyrics.json`)).json()}catch(e){}
     const files=await(await fetch(`https://api.github.com/repos/${USER}/${REPO}/contents/Songs`)).json();
-    songs=files.filter(f=>/\.(mp3|wav|ogg|m4a|flac)$/i.test(f.name)).map(f=>{
+    const list=files.filter(f=>/\.(mp3|wav|ogg|m4a|flac)$/i.test(f.name));
+    songs=[];
+    for(const f of list){
       const n=f.name.replace(/\.[^.]+$/,'');
-      const [a,t]=n.includes(' - ')?n.split(' - '):['Unknown',n];
-      return{title:t,artist:a,album:'Cloud Library',url:`${BASE}/Songs/${f.name}`,art:art[n]||'',lyrics:lyr[t]||'No lyrics'};
-    });
-    render();
-  }catch(e){$('list').innerHTML='<div style="color:#666;text-align:center;margin-top:60px">Move your MP3s into the <b>Songs/</b> folder</div>';}
+      const t=await meta(`${BASE}/Songs/${f.name}`,f.name);
+      songs.push({
+        title:t.title||n, artist:t.artist||'Unknown', album:t.album||'Cloud Library',
+        url:`${BASE}/Songs/${f.name}`, art:art[n]||'', lyrics:t.lyrics||'No lyrics'
+      });
+      render();
+    }
+  }catch(e){$('list').innerHTML='<div style="color:#666;text-align:center;margin-top:60px">Upload MP3s to the <b>Songs/</b> folder</div>';}
 }
 
 async function loadLocal(){
   const k=(await keys()).filter(x=>x.startsWith('s_'));
-  songs=[];for(const x of k)songs.push(await get(x));
+  songs=[]; for(const x of k) songs.push(await get(x));
   render();
 }
 
 function render(){
   $('list').innerHTML='';
   songs.forEach((s,i)=>{
-    const d=document.createElement('div');d.className='song';
+    const d=document.createElement('div'); d.className='song';
     d.innerHTML=`<img src="${s.art||''}" onerror="this.style.opacity=0"><div><div class="t">${s.title}</div><div class="m">${s.artist} • ${s.album}</div></div>`;
-    d.onclick=()=>play(i);$('list').appendChild(d);
+    d.onclick=()=>play(i); $('list').appendChild(d);
   });
 }
 
 function play(i){
-  idx=i;const s=songs[i];
+  idx=i; const s=songs[i];
   audio.src=s.buf?URL.createObjectURL(new Blob([s.buf],{type:s.type})):s.url;
   audio.play();
-  $('pTitle').textContent=s.title;$('pArtist').textContent=s.artist;
-  $('pAlbum').textContent=s.album;$('pArt').src=s.art||'';$('lyr').textContent=s.lyrics||'No lyrics';
-  $('mTitle').textContent=s.title;$('mArtist').textContent=s.artist;$('mArt').src=s.art||'';
+  $('pTitle').textContent=s.title; $('pArtist').textContent=s.artist;
+  $('pAlbum').textContent=s.album; $('pArt').src=s.art||''; $('lyr').textContent=s.lyrics||'No lyrics';
+  $('mTitle').textContent=s.title; $('mArtist').textContent=s.artist; $('mArt').src=s.art||'';
   $('pBtn').textContent=$('mBtn').textContent='⏸';
 }
 
@@ -141,8 +181,11 @@ async function addFiles(e){
     arts[f.name.replace(/\.[^.]+$/,'')]=await new Promise(r=>{const reader=new FileReader();reader.onloadend=()=>r(reader.result);reader.readAsDataURL(f)});
   }
   for(const f of audios){
-    const buf=await f.arrayBuffer(),n=f.name.replace(/\.[^.]+$/,'');
-    await set('s_'+Date.now()+'_'+n,{title:n,artist:'Unknown',album:'My Library',type:f.type,buf,art:arts[n]||''});
+    const buf=await f.arrayBuffer(),n=f.name.replace(/\.[^.]+$/,''),t=readID3(buf);
+    await set('s_'+Date.now()+'_'+n,{
+      title:t.title||n,artist:t.artist||'Unknown',album:t.album||'Unknown',
+      type:f.type,buf,art:arts[n]||'',lyrics:t.lyrics||'No lyrics'
+    });
   }
   if(cur==='local')loadLocal();
 }
