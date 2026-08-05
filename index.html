@@ -3,66 +3,154 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<meta name="theme-color" content="#0a0a0a">
-<title>Music Player</title>
+<meta name="theme-color" content="#000000">
+<title>Music</title>
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:system-ui;background:#0a0a0a;color:#fff;padding:16px;padding-bottom:140px}
-h1{font-size:20px;margin-bottom:4px}
-p{color:#888;font-size:13px;margin-bottom:16px}
-input{display:none}
-button{background:#1db954;color:#fff;border:none;padding:10px 16px;border-radius:20px;font-size:14px;cursor:pointer;margin:0 8px 8px 0}
-button:nth-child(2){background:#333}
-#list{margin-top:12px}
-.song{display:flex;align-items:center;padding:12px;background:#1a1a1a;border-radius:10px;margin-bottom:8px;cursor:pointer}
-.song:active{transform:scale(.98)}
-.song.active{background:#1db954;color:#000}
-.song img{width:48px;height:48px;border-radius:6px;object-fit:cover;margin-right:12px;background:#333}
-.song span{font-size:14px;word-break:break-all}
-#bar{position:fixed;bottom:0;left:0;right:0;background:#000;border-top:1px solid #222;padding:12px 16px}
-#now{font-size:12px;color:#888;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-audio{width:100%;height:36px}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#000;color:#fff;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+.tabs{display:flex;justify-content:center;gap:32px;padding:16px;border-bottom:1px solid #222}
+.tab{color:#888;font-size:15px;font-weight:600;cursor:pointer;padding-bottom:4px}
+.tab.active{color:#fff;border-bottom:2px solid #fa233b}
+.content{flex:1;overflow-y:auto;padding:16px;padding-bottom:140px}
+.song{display:flex;align-items:center;padding:10px 0;border-bottom:1px solid #1a1a1a;cursor:pointer}
+.song:active{opacity:.6}
+.song img{width:60px;height:60px;border-radius:6px;margin-right:14px;background:#333;object-fit:cover}
+.song .t{font-size:16px;font-weight:500}
+.song .m{font-size:13px;color:#888;margin-top:2px}
+.player{position:fixed;inset:0;background:linear-gradient(180deg,#1e1e2f,#000);z-index:100;display:none;flex-direction:column;padding:24px}
+.player.on{display:flex}
+.close{align-self:flex-end;font-size:28px;color:#888;padding:8px;cursor:pointer}
+.art{width:280px;height:280px;border-radius:12px;align-self:center;background:#333;object-fit:cover;box-shadow:0 25px 80px rgba(0,0,0,.9)}
+.info{text-align:center;margin-top:32px}
+.pt{font-size:24px;font-weight:700}
+.pa{font-size:17px;color:#fa233b;margin-top:6px}
+.pal{font-size:14px;color:#888;margin-top:4px}
+.prog{margin:24px 16px 0}
+.prog input{width:100%;-webkit-appearance:none;height:4px;background:#333;border-radius:2px;outline:none}
+.prog input::-webkit-slider-thumb{-webkit-appearance:none;width:10px;height:10px;background:#fff;border-radius:50%}
+.ctrl{display:flex;justify-content:center;align-items:center;gap:40px;margin-top:28px}
+.btn{background:none;border:none;color:#fff;font-size:32px;cursor:pointer}
+.btn.p{width:68px;height:68px;background:#fff;color:#000;border-radius:50%;font-size:26px;display:flex;align-items:center;justify-content:center}
+.lyr-btn{align-self:center;margin-top:20px;color:#fa233b;border:1px solid #fa233b;background:none;padding:6px 20px;border-radius:20px;font-size:13px;cursor:pointer}
+.lyr{margin:16px 24px 0;text-align:center;color:#aaa;font-size:15px;line-height:1.7;max-height:140px;overflow-y:auto;display:none;white-space:pre-line}
+.lyr.on{display:block}
+.mini{position:fixed;bottom:0;left:0;right:0;background:rgba(30,30,30,.95);backdrop-filter:blur(20px);border-top:1px solid #333;padding:10px 16px;display:flex;align-items:center;gap:12px;cursor:pointer;z-index:90}
+.mini img{width:46px;height:46px;border-radius:4px;background:#333}
+.mini .mt{font-size:14px;font-weight:500}
+.mini .ma{font-size:12px;color:#888}
+.mbtn{background:none;border:none;color:#fff;font-size:22px;cursor:pointer;padding:8px}
+.add{position:fixed;bottom:90px;right:20px;width:56px;height:56px;background:#fa233b;border-radius:50%;border:none;color:#fff;font-size:28px;cursor:pointer;box-shadow:0 4px 20px rgba(250,35,59,.4);z-index:50}
+input[type=file]{display:none}
 </style>
 </head>
 <body>
-<h1>🎵 Offline Music</h1>
-<p>Select files from your Google Drive sync folder. Works 100% offline.</p>
-<input type="file" id="s" accept="audio/*" multiple>
-<input type="file" id="a" accept="image/*" multiple>
-<button onclick="s.click()">➕ Songs</button>
-<button onclick="a.click()">🖼 Art</button>
-<div id="list"></div>
-<div id="bar"><div id="now">Tap song to play</div><audio id="p" controls></audio></div>
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('cloud',this)">Cloud</div>
+  <div class="tab" onclick="switchTab('local',this)">My Library</div>
+</div>
+<div class="content" id="list"></div>
+
+<div class="player" id="player">
+  <div class="close" onclick="player.classList.remove('on')">✕</div>
+  <img class="art" id="pArt" src="">
+  <div class="info">
+    <div class="pt" id="pTitle">Song</div>
+    <div class="pa" id="pArtist">Artist</div>
+    <div class="pal" id="pAlbum">Album</div>
+  </div>
+  <div class="prog"><input type="range" id="seek" value="0" oninput="audio.currentTime=this.value"></div>
+  <div class="ctrl">
+    <button class="btn" onclick="prev()">⏮</button>
+    <button class="btn p" id="pBtn" onclick="toggle()">▶</button>
+    <button class="btn" onclick="next()">⏭</button>
+  </div>
+  <button class="lyr-btn" onclick="lyr.classList.toggle('on')">Lyrics</button>
+  <div class="lyr" id="lyr">No lyrics</div>
+</div>
+
+<div class="mini" id="mini" onclick="player.classList.add('on')">
+  <img id="mArt" src="">
+  <div style="flex:1">
+    <div class="mt" id="mTitle">Loading...</div>
+    <div class="ma" id="mArtist">Cloud Library</div>
+  </div>
+  <button class="mbtn" id="mBtn" onclick="event.stopPropagation();toggle()">▶</button>
+</div>
+
+<button class="add" onclick="fin.click()">+</button>
+<input type="file" id="fin" accept="audio/*,image/*" multiple onchange="addFiles(event)">
+<audio id="audio" ontimeupdate="seek.value=audio.currentTime;seek.max=audio.duration||0" onended="next()"></audio>
 
 <script type="module">
 import{get,set,keys}from'https://cdn.jsdelivr.net/npm/idb-keyval@6/+esm';
-const $=x=>document.getElementById(x),q=x=>document.querySelector(x),p=$('p'),l=$('list'),n=$('now');
-let c=null;
+const $=id=>document.getElementById(id),audio=$('audio'),seek=$('seek');
+let songs=[],idx=0,cur='cloud';
 
-// Load saved songs on startup
-const all=await keys(),songKeys=all.filter(k=>k.startsWith('s_'));
-for(const k of songKeys)render(await get(k));
+const USER='beyondcodertg-pixel';
+const REPO='MusicPlayer';
+const BASE=`https://raw.githubusercontent.com/${USER}/${REPO}/main`;
 
-// Add new songs
-s.onchange=async e=>{for(const f of e.target.files){const d=await f.arrayBuffer();await set('s_'+f.name,{n:f.name,t:f.type,d});render({n:f.name,t:f.type,d})}};
-
-// Add art (auto-matches if filename matches song name, e.g., "song.mp3" + "song.jpg")
-a.onchange=async e=>{for(const f of e.target.files){const d=await f.arrayBuffer(),b=f.name.replace(/\.[^.]+$/,'');await set('a_'+b,d);const i=q(`[data-b="${b}"] img`);if(i)i.src=URL.createObjectURL(new Blob([d]))}};
-
-function render(s){
-  const x=document.createElement('div');
-  x.className='song';x.dataset.b=s.n.replace(/\.[^.]+$/,'');
-  x.innerHTML=`<img src=""><span>${s.n}</span>`;
-  x.onclick=()=>{c&&c.classList.remove('active');c=x;x.classList.add('active');n.textContent='▶ '+s.n;p.src=URL.createObjectURL(new Blob([s.d],{type:s.t}));p.play()};
-  l.appendChild(x);
-  get('a_'+x.dataset.b).then(d=>d&&(x.querySelector('img').src=URL.createObjectURL(new Blob([d]))));
+async function loadCloud(){
+  try{
+    let art={},lyr={};
+    try{const a=await(await fetch(`https://api.github.com/repos/${USER}/${REPO}/contents/Art`)).json();a.forEach(f=>art[f.name.replace(/\.[^.]+$/,'')]=`${BASE}/Art/${f.name}`)}catch(e){}
+    try{lyr=await(await fetch(`${BASE}/lyrics.json`)).json()}catch(e){}
+    const files=await(await fetch(`https://api.github.com/repos/${USER}/${REPO}/contents/Songs`)).json();
+    songs=files.filter(f=>/\.(mp3|wav|ogg|m4a|flac)$/i.test(f.name)).map(f=>{
+      const n=f.name.replace(/\.[^.]+$/,'');
+      const [a,t]=n.includes(' - ')?n.split(' - '):['Unknown',n];
+      return{title:t,artist:a,album:'Cloud Library',url:`${BASE}/Songs/${f.name}`,art:art[n]||'',lyrics:lyr[t]||'No lyrics'};
+    });
+    render();
+  }catch(e){$('list').innerHTML='<div style="color:#666;text-align:center;margin-top:60px">Move your MP3s into the <b>Songs/</b> folder</div>';}
 }
 
-// Offline app shell (so the website itself loads without internet)
-if('serviceWorker'in navigator){
-  const code=`self.addEventListener('install',e=>{e.waitUntil(caches.open('v1').then(c=>c.addAll(['/'])));self.skipWaiting()});self.addEventListener('activate',e=>e.waitUntil(clients.claim()));self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))))`;
-  navigator.serviceWorker.register(URL.createObjectURL(new Blob([code],{type:'text/javascript'})));
+async function loadLocal(){
+  const k=(await keys()).filter(x=>x.startsWith('s_'));
+  songs=[];for(const x of k)songs.push(await get(x));
+  render();
 }
+
+function render(){
+  $('list').innerHTML='';
+  songs.forEach((s,i)=>{
+    const d=document.createElement('div');d.className='song';
+    d.innerHTML=`<img src="${s.art||''}" onerror="this.style.opacity=0"><div><div class="t">${s.title}</div><div class="m">${s.artist} • ${s.album}</div></div>`;
+    d.onclick=()=>play(i);$('list').appendChild(d);
+  });
+}
+
+function play(i){
+  idx=i;const s=songs[i];
+  audio.src=s.buf?URL.createObjectURL(new Blob([s.buf],{type:s.type})):s.url;
+  audio.play();
+  $('pTitle').textContent=s.title;$('pArtist').textContent=s.artist;
+  $('pAlbum').textContent=s.album;$('pArt').src=s.art||'';$('lyr').textContent=s.lyrics||'No lyrics';
+  $('mTitle').textContent=s.title;$('mArtist').textContent=s.artist;$('mArt').src=s.art||'';
+  $('pBtn').textContent=$('mBtn').textContent='⏸';
+}
+
+function toggle(){if(audio.paused){audio.play();$('pBtn').textContent=$('mBtn').textContent='⏸'}else{audio.pause();$('pBtn').textContent=$('mBtn').textContent='▶'}}
+function prev(){if(idx>0)play(idx-1)}
+function next(){if(idx<songs.length-1)play(idx+1)}
+
+async function addFiles(e){
+  const files=[...e.target.files],audios=files.filter(f=>f.type.startsWith('audio/'));
+  const arts={};
+  for(const f of files.filter(f=>f.type.startsWith('image/'))){
+    arts[f.name.replace(/\.[^.]+$/,'')]=await new Promise(r=>{const reader=new FileReader();reader.onloadend=()=>r(reader.result);reader.readAsDataURL(f)});
+  }
+  for(const f of audios){
+    const buf=await f.arrayBuffer(),n=f.name.replace(/\.[^.]+$/,'');
+    await set('s_'+Date.now()+'_'+n,{title:n,artist:'Unknown',album:'My Library',type:f.type,buf,art:arts[n]||''});
+  }
+  if(cur==='local')loadLocal();
+}
+
+window.switchTab=(t,el)=>{cur=t;document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));el.classList.add('active');t==='cloud'?loadCloud():loadLocal()};
+window.toggle=toggle;window.prev=prev;window.next=next;window.addFiles=addFiles;
+
+loadCloud();
 </script>
 </body>
 </html>
