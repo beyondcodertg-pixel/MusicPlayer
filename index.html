@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="theme-color" content="#000000">
 <title>Music</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#000;color:#fff;height:100vh;display:flex;flex-direction:column;overflow:hidden}
@@ -32,8 +33,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .btn{background:none;border:none;color:#fff;font-size:32px;cursor:pointer}
 .btn.p{width:68px;height:68px;background:#fff;color:#000;border-radius:50%;font-size:26px;display:flex;align-items:center;justify-content:center}
 .lyr-btn{align-self:center;margin-top:20px;color:#fa233b;border:1px solid #fa233b;background:none;padding:6px 20px;border-radius:20px;font-size:13px;cursor:pointer}
-.lyr{margin:16px 24px 0;text-align:center;color:#aaa;font-size:15px;line-height:1.7;max-height:140px;overflow-y:auto;display:none;white-space:pre-line}
-.lyr.on{display:block}
+.lyr-box{margin:16px 24px 0;text-align:center;max-height:200px;overflow-y:auto;display:none;mask-image:linear-gradient(to bottom,transparent,black 8%,black 92%,transparent)}
+.lyr-box.on{display:block}
+.lyr-line{padding:8px 0;color:#666;font-size:15px;transition:.3s}
+.lyr-line.on{color:#fff;font-size:19px;font-weight:600}
 .mini{position:fixed;bottom:0;left:0;right:0;background:rgba(30,30,30,.95);backdrop-filter:blur(20px);border-top:1px solid #333;padding:10px 16px;display:flex;align-items:center;gap:12px;cursor:pointer;z-index:90}
 .mini img{width:46px;height:46px;border-radius:4px;background:#333}
 .mini .mt{font-size:14px;font-weight:500}
@@ -64,8 +67,8 @@ input[type=file]{display:none}
     <button class="btn p" id="pBtn" onclick="toggle()">▶</button>
     <button class="btn" onclick="next()">⏭</button>
   </div>
-  <button class="lyr-btn" onclick="lyr.classList.toggle('on')">Lyrics</button>
-  <div class="lyr" id="lyr">No lyrics</div>
+  <button class="lyr-btn" onclick="lyrBox.classList.toggle('on')">Lyrics</button>
+  <div class="lyr-box" id="lyrBox"></div>
 </div>
 
 <div class="mini" id="mini" onclick="player.classList.add('on')">
@@ -78,96 +81,103 @@ input[type=file]{display:none}
 </div>
 
 <button class="add" onclick="fin.click()">+</button>
-<input type="file" id="fin" accept="audio/*,image/*" multiple onchange="addFiles(event)">
-<audio id="audio" ontimeupdate="seek.value=audio.currentTime;seek.max=audio.duration||0" onended="next()"></audio>
+<input type="file" id="fin" accept="audio/*" multiple onchange="addFiles(event)">
+<audio id="audio" ontimeupdate="onTime()" onended="next()"></audio>
 
 <script type="module">
 import{get,set,keys}from'https://cdn.jsdelivr.net/npm/idb-keyval@6/+esm';
-const $=id=>document.getElementById(id),audio=$('audio'),seek=$('seek');
-let songs=[],idx=0,cur='cloud';
+const $=id=>document.getElementById(id),audio=$('audio'),seek=$('seek'),lyrBox=$('lyrBox');
+let songs=[],idx=0,cur='cloud',lyrics=[];
 
-const USER='beyondcodertg-pixel';
-const REPO='MusicPlayer';
-const BASE=`https://raw.githubusercontent.com/${USER}/${REPO}/main`;
+const USER='beyondcodertg-pixel',REPO='MusicPlayer',BASE=`https://raw.githubusercontent.com/${USER}/${REPO}/main`;
 
-// ---- Tiny ID3v2 Tag Reader ----
-function readID3(ab){
-  const u=new Uint8Array(ab),d=new TextDecoder();
-  if(d.decode(u.slice(0,3))!=='ID3') return {};
-  const v=u[3],f=u[5];
-  let o=10,s=((u[6]&0x7f)<<21)|((u[7]&0x7f)<<14)|((u[8]&0x7f)<<7)|(u[9]&0x7f);
-  if(f&0x40){o+=((u[10]&0x7f)<<21)|((u[11]&0x7f)<<14)|((u[12]&0x7f)<<7)|(u[13]&0x7f)+4;}
-  const r={};
-  while(o<s+10){
-    const id=d.decode(u.slice(o,o+4));
-    if(!id||id[0]==='\0') break;
-    const fs=v===4?(((u[o+4]&0x7f)<<21)|((u[o+5]&0x7f)<<14)|((u[o+6]&0x7f)<<7)|(u[o+7]&0x7f)):(u[o+4]*16777216+u[o+5]*65536+u[o+6]*256+u[o+7]);
-    const enc=u[o+10],raw=u.slice(o+11,o+10+fs);
-    const dec=enc===1?new TextDecoder('utf-16le'):enc===2?new TextDecoder('utf-16be'):d;
-    let txt=dec.decode(raw).replace(/\0/g,'');
-    if(id==='TIT2') r.title=txt;
-    if(id==='TPE1') r.artist=txt;
-    if(id==='TALB') r.album=txt;
-    if(id==='USLT'){
-      let i=3; while(i<raw.length&&raw[i]!==0)i++; i++;
-      if(enc===1||enc===2){while(i<raw.length-1&&!(raw[i]===0&&raw[i+1]===0))i+=2; i+=2;}
-      else{while(i<raw.length&&raw[i]!==0)i++; i++;}
-      r.lyrics=dec.decode(raw.slice(i)).replace(/\0/g,'');
-    }
-    o+=10+fs;
-  }
-  return r;
+function toB64(pic){
+  if(!pic||!pic.data) return '';
+  const u=new Uint8Array(pic.data);
+  let s='';for(let i=0;i<u.length;i++)s+=String.fromCharCode(u[i]);
+  return 'data:'+pic.format+';base64,'+btoa(s);
 }
 
-// Fetch & cache metadata from a remote MP3
-async function meta(url,key){
-  let c=await get('m_'+key); if(c) return c;
-  try{const b=await(await fetch(url)).arrayBuffer(); c=readID3(b); await set('m_'+key,c);}catch(e){}
-  return c||{};
+function getLyrics(t){
+  if(!t.lyrics) return '';
+  if(typeof t.lyrics==='string') return t.lyrics;
+  return t.lyrics.lyrics||'';
+}
+
+function readTags(buf,cb){
+  jsmediatags.read(new Blob([buf]),{onSuccess:t=>cb(t.tags),onError:()=>cb({})});
+}
+
+function parseLyrics(txt){
+  if(!txt) return [];
+  const re=/\[(\d+):(\d+\.?\d*)\](.*)/g,m=[];
+  let x;while((x=re.exec(txt))!==null)m.push({t:parseInt(x[1])*60+parseFloat(x[2]),x:x[3].trim()});
+  if(m.length) return m.sort((a,b)=>a.t-b.t);
+  return txt.split('\n').filter(l=>l.trim()).map(l=>({t:0,x:l.trim()}));
 }
 
 async function loadCloud(){
   try{
-    let art={};
-    try{const a=await(await fetch(`https://api.github.com/repos/${USER}/${REPO}/contents/Art`)).json();a.forEach(f=>art[f.name.replace(/\.[^.]+$/,'')]=`${BASE}/Art/${f.name}`)}catch(e){}
     const files=await(await fetch(`https://api.github.com/repos/${USER}/${REPO}/contents/Songs`)).json();
     const list=files.filter(f=>/\.(mp3|wav|ogg|m4a|flac)$/i.test(f.name));
     songs=[];
     for(const f of list){
       const n=f.name.replace(/\.[^.]+$/,'');
-      const t=await meta(`${BASE}/Songs/${f.name}`,f.name);
-      songs.push({
-        title:t.title||n, artist:t.artist||'Unknown', album:t.album||'Cloud Library',
-        url:`${BASE}/Songs/${f.name}`, art:art[n]||'', lyrics:t.lyrics||'No lyrics'
-      });
+      let c=await get('m_'+f.name);
+      if(!c){
+        const buf=await(await fetch(`${BASE}/Songs/${f.name}`)).arrayBuffer();
+        c=await new Promise(r=>readTags(buf,t=>r({
+          title:t.title||n,artist:t.artist||'Unknown',album:t.album||'Cloud Library',
+          lyrics:getLyrics(t),art:toB64(t.picture)
+        })));
+        await set('m_'+f.name,c);
+      }
+      songs.push({...c,url:`${BASE}/Songs/${f.name}`});
       render();
     }
-  }catch(e){$('list').innerHTML='<div style="color:#666;text-align:center;margin-top:60px">Upload MP3s to the <b>Songs/</b> folder</div>';}
+  }catch(e){$('list').innerHTML='<div style="color:#666;text-align:center;margin-top:60px">Upload MP3s to <b>Songs/</b> folder</div>';}
 }
 
 async function loadLocal(){
   const k=(await keys()).filter(x=>x.startsWith('s_'));
-  songs=[]; for(const x of k) songs.push(await get(x));
+  songs=[];for(const x of k)songs.push(await get(x));
   render();
 }
 
 function render(){
   $('list').innerHTML='';
   songs.forEach((s,i)=>{
-    const d=document.createElement('div'); d.className='song';
+    const d=document.createElement('div');d.className='song';
     d.innerHTML=`<img src="${s.art||''}" onerror="this.style.opacity=0"><div><div class="t">${s.title}</div><div class="m">${s.artist} • ${s.album}</div></div>`;
-    d.onclick=()=>play(i); $('list').appendChild(d);
+    d.onclick=()=>play(i);$('list').appendChild(d);
   });
 }
 
 function play(i){
-  idx=i; const s=songs[i];
+  idx=i;const s=songs[i];
   audio.src=s.buf?URL.createObjectURL(new Blob([s.buf],{type:s.type})):s.url;
   audio.play();
-  $('pTitle').textContent=s.title; $('pArtist').textContent=s.artist;
-  $('pAlbum').textContent=s.album; $('pArt').src=s.art||''; $('lyr').textContent=s.lyrics||'No lyrics';
-  $('mTitle').textContent=s.title; $('mArtist').textContent=s.artist; $('mArt').src=s.art||'';
+  $('pTitle').textContent=s.title;$('pArtist').textContent=s.artist;
+  $('pAlbum').textContent=s.album;$('pArt').src=s.art||'';$('mArt').src=s.art||'';
+  $('mTitle').textContent=s.title;$('mArtist').textContent=s.artist;
   $('pBtn').textContent=$('mBtn').textContent='⏸';
+  lyrics=parseLyrics(s.lyrics||'');
+  lyrBox.innerHTML=lyrics.map((l,i)=>`<div class="lyr-line" id="L${i}">${l.x}</div>`).join('');
+}
+
+function onTime(){
+  seek.value=audio.currentTime;seek.max=audio.duration||0;
+  if(!lyrics.length||!lyrBox.classList.contains('on')) return;
+  let ci=0;
+  if(lyrics[lyrics.length-1].t===0 && audio.duration){
+    ci=Math.floor((audio.currentTime/audio.duration)*lyrics.length);
+  }else{
+    for(let i=0;i<lyrics.length;i++) if(audio.currentTime>=lyrics[i].t) ci=i;
+  }
+  document.querySelectorAll('.lyr-line').forEach((el,i)=>{
+    el.classList.toggle('on',i===ci);
+    if(i===ci) el.scrollIntoView({behavior:'smooth',block:'center'});
+  });
 }
 
 function toggle(){if(audio.paused){audio.play();$('pBtn').textContent=$('mBtn').textContent='⏸'}else{audio.pause();$('pBtn').textContent=$('mBtn').textContent='▶'}}
@@ -175,23 +185,19 @@ function prev(){if(idx>0)play(idx-1)}
 function next(){if(idx<songs.length-1)play(idx+1)}
 
 async function addFiles(e){
-  const files=[...e.target.files],audios=files.filter(f=>f.type.startsWith('audio/'));
-  const arts={};
-  for(const f of files.filter(f=>f.type.startsWith('image/'))){
-    arts[f.name.replace(/\.[^.]+$/,'')]=await new Promise(r=>{const reader=new FileReader();reader.onloadend=()=>r(reader.result);reader.readAsDataURL(f)});
-  }
-  for(const f of audios){
-    const buf=await f.arrayBuffer(),n=f.name.replace(/\.[^.]+$/,''),t=readID3(buf);
-    await set('s_'+Date.now()+'_'+n,{
+  for(const f of e.target.files){
+    const buf=await f.arrayBuffer(),n=f.name.replace(/\.[^.]+$/,'');
+    const s=await new Promise(r=>readTags(buf,t=>r({
       title:t.title||n,artist:t.artist||'Unknown',album:t.album||'Unknown',
-      type:f.type,buf,art:arts[n]||'',lyrics:t.lyrics||'No lyrics'
-    });
+      type:f.type,buf,lyrics:getLyrics(t),art:toB64(t.picture)
+    })));
+    await set('s_'+Date.now()+'_'+n,s);
+    if(cur==='local'){songs.push(s);render();}
   }
-  if(cur==='local')loadLocal();
 }
 
 window.switchTab=(t,el)=>{cur=t;document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));el.classList.add('active');t==='cloud'?loadCloud():loadLocal()};
-window.toggle=toggle;window.prev=prev;window.next=next;window.addFiles=addFiles;
+window.toggle=toggle;window.prev=prev;window.next=next;window.addFiles=addFiles;window.onTime=onTime;
 
 loadCloud();
 </script>
