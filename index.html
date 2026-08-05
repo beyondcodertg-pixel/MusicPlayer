@@ -99,7 +99,7 @@ input[type=file]{display:none}
   <div class="tablewrap">
     <table>
       <thead><tr><th>#</th><th>Name</th><th>Time</th><th>Artist</th><th>Grouping</th><th>Album</th><th>Album Artist</th><th>Year</th><th>Genre</th></tr></thead>
-      <tbody id="dBody"></tbody>
+      <tbody id="dBody"><tr><td colspan="9" style="text-align:center;color:#666;padding:40px">Loading songs...</td></tr></tbody>
     </table>
   </div>
 </div>
@@ -110,7 +110,7 @@ input[type=file]{display:none}
     <div class="mtab active" onclick="switchTab('cloud',this)">Cloud</div>
     <div class="mtab" onclick="switchTab('local',this)">My Library</div>
   </div>
-  <div class="mlist" id="mList"></div>
+  <div class="mlist" id="mList"><div style="color:#666;text-align:center;margin-top:60px">Loading songs...</div></div>
   
   <div class="mplayer" id="mPlayer">
     <div class="mclose" onclick="mPlayer.classList.remove('on')">✕</div>
@@ -149,40 +149,75 @@ input[type=file]{display:none}
 import{get,set,keys}from'https://cdn.jsdelivr.net/npm/idb-keyval@6/+esm';
 const $=id=>document.getElementById(id),audio=$('audio');
 let songs=[],idx=0,cur='cloud',lyrics=[],durs={};
-const CV='v4_',USER='beyondcodertg-pixel',REPO='MusicPlayer',BASE=`https://raw.githubusercontent.com/${USER}/${REPO}/main`;
+const USER='beyondcodertg-pixel',REPO='MusicPlayer',BASE=`https://raw.githubusercontent.com/${USER}/${REPO}/main`;
 
 function fmt(s){if(!s||isNaN(s))return'—:—';const m=Math.floor(s/60),sec=Math.floor(s%60);return m+':'+(sec<10?'0':'')+sec}
-function getArt(pic){if(!pic||!pic.data)return'';const u=pic.data instanceof Uint8Array?pic.data:new Uint8Array(pic.data);let b='';for(let i=0;i<u.length;i++)b+=String.fromCharCode(u[i]);return'data:'+(pic.format||'image/jpeg')+';base64,'+btoa(b)}
-function getLyrics(t){if(!t.lyrics)return'';if(typeof t.lyrics==='string')return t.lyrics;return t.lyrics.lyrics||''}
-function parseLyrics(txt){if(!txt)return[];const r=/\[(\d+):(\d+\.?\d*)\](.*)/g,m=[];let x;while((x=r.exec(txt))!==null)m.push({t:parseInt(x[1])*60+parseFloat(x[2]),x:x[3].trim()});if(m.length)return m.sort((a,b)=>a.t-b.t);return txt.split('\n').filter(l=>l.trim()).map(l=>({t:0,x:l.trim()}))}
 
-function readTags(url,cb){
-  jsmediatags.read(url,{
-    onSuccess:function(tag){
-      const t=tag.tags;
-      cb({title:t.title||'',artist:t.artist||'',album:t.album||'',albumArtist:t.TPE2||t.band||'',grouping:t.TIT1||t.grouping||'',composer:t.TCOM||'',year:t.year||'',genre:t.genre||'',lyrics:getLyrics(t),art:getArt(t.picture)});
-    },
-    onError:function(){cb({})}
-  });
+function getArt(pic){
+  if(!pic||!pic.data)return'';
+  const arr=pic.data instanceof Uint8Array?pic.data:new Uint8Array(pic.data);
+  let b='';for(let i=0;i<arr.length;i++)b+=String.fromCharCode(arr[i]);
+  return'data:'+(pic.format||'image/jpeg')+';base64,'+btoa(b);
+}
+
+function getLyrics(t){
+  if(!t.lyrics)return'';
+  if(typeof t.lyrics==='string')return t.lyrics;
+  if(t.lyrics.lyrics)return t.lyrics.lyrics;
+  return'';
+}
+
+function parseLyrics(txt){
+  if(!txt)return[];
+  const re=/\[(\d+):(\d+\.?\d*)\](.*)/g,m=[];
+  let x;while((x=re.exec(txt))!==null)m.push({t:parseInt(x[1])*60+parseFloat(x[2]),x:x[3].trim()});
+  if(m.length)return m.sort((a,b)=>a.t-b.t);
+  return txt.split('\n').filter(l=>l.trim()).map(l=>({t:0,x:l.trim()}));
+}
+
+function readTags(buf,cb){
+  try{
+    jsmediatags.read(new Blob([buf]),{
+      onSuccess:function(tag){
+        const t=tag.tags||{};
+        cb({title:t.title||'',artist:t.artist||'',album:t.album||'',albumArtist:t.TPE2||t.band||'',grouping:t.TIT1||t.grouping||'',composer:t.TCOM||'',year:t.year||'',genre:t.genre||'',lyrics:getLyrics(t),art:getArt(t.picture)});
+      },
+      onError:function(){cb({})}
+    });
+  }catch(e){cb({})}
+}
+
+function showErr(msg){
+  $('dBody').innerHTML=`<tr><td colspan="9" style="text-align:center;color:#fa233b;padding:40px">${msg}</td></tr>`;
+  $('mList').innerHTML=`<div style="color:#fa233b;text-align:center;margin-top:60px">${msg}</div>`;
 }
 
 async function loadCloud(){
   try{
-    const files=await(await fetch(`https://api.github.com/repos/${USER}/${REPO}/contents/Songs`)).json();
+    const res=await fetch(`https://api.github.com/repos/${USER}/${REPO}/contents/Songs`);
+    if(!res.ok){throw new Error('GitHub API '+res.status)}
+    const files=await res.json();
     const list=files.filter(f=>/\.(mp3|wav|ogg|m4a|flac)$/i.test(f.name));
+    if(!list.length){showErr('No songs found. Upload MP3s to the Songs/ folder.');return;}
+    
     songs=[];renderAll();
     for(const f of list){
       const n=f.name.replace(/\.[^.]+$/,'');
-      let c=await get(CV+f.name);
+      let c=await get('meta_'+f.name);
       if(!c){
-        const url=BASE+'/Songs/'+f.name;
-        c=await new Promise(r=>readTags(url,r));
-        c.url=url;c.duration=0;
-        await set(CV+f.name,c);
+        try{
+          const buf=await(await fetch(BASE+'/Songs/'+f.name)).arrayBuffer();
+          c=await new Promise(r=>readTags(buf,t=>r(t)));
+        }catch(e){c={};}
+        c.title=c.title||n;c.artist=c.artist||'Unknown';c.album=c.album||'Cloud Library';
+        c.url=BASE+'/Songs/'+f.name;c.duration=0;
+        await set('meta_'+f.name,c);
       }
       songs.push(c);renderAll();
     }
-  }catch(e){$('dBody').innerHTML='<tr><td colspan="9" style="text-align:center;color:#666;padding:40px">Upload MP3s to <b>Songs/</b> folder in your repo</td></tr>';$('mList').innerHTML='<div style="color:#666;text-align:center;margin-top:60px">Upload MP3s to <b>Songs/</b> folder</div>';}
+  }catch(e){
+    showErr(e.message.includes('API')?'GitHub API limit reached. Try again in a few minutes.':'Error loading songs. Make sure Songs/ folder exists with MP3s.');
+  }
 }
 
 async function loadLocal(){
@@ -191,71 +226,13 @@ async function loadLocal(){
 }
 
 function renderAll(){
-  // Desktop table
   $('dBody').innerHTML='';
   songs.forEach((s,i)=>{
     const tr=document.createElement('tr');tr.className=i===idx?'on':'';
     tr.innerHTML=`<td>${i===idx?'':i+1}</td><td>${s.title||'Unknown'}</td><td>${fmt(durs[s.url]||s.duration)}</td><td>${s.artist||''}</td><td>${s.grouping||''}</td><td>${s.album||''}</td><td>${s.albumArtist||''}</td><td>${s.year||''}</td><td>${s.genre||''}</td>`;
     tr.onclick=()=>play(i);$('dBody').appendChild(tr);
   });
-  // Mobile list
   $('mList').innerHTML='';
   songs.forEach((s,i)=>{
     const d=document.createElement('div');d.className='msong';
-    d.innerHTML=`<img src="${s.art||''}" onerror="this.style.opacity=0"><div><div class="t">${s.title||'Unknown'}</div><div class="m">${s.artist||'Unknown'} • ${s.album||''}</div></div>`;
-    d.onclick=()=>play(i);$('mList').appendChild(d);
-  });
-}
-
-function play(i){
-  idx=i;const s=songs[i];
-  audio.src=s.buf?URL.createObjectURL(new Blob([s.buf],{type:s.type})):s.url;
-  audio.play();
-  // Desktop
-  $('dTitle').textContent=s.title||'Unknown';$('dArtist').textContent=(s.artist||'')+' — '+(s.album||'');
-  $('dArt').src=s.art||'';document.querySelectorAll('#dBody tr').forEach((r,j)=>r.classList.toggle('on',j===i));
-  // Mobile
-  $('mTitle2').textContent=s.title||'Unknown';$('mArtist2').textContent=s.artist||'Unknown';$('mAlbum').textContent=s.album||'';
-  $('mArt').src=s.art||'';$('mArt2').src=s.art||'';$('mTitle').textContent=s.title||'Unknown';$('mArtist').textContent=s.artist||'Unknown';
-  $('dPlay').textContent=$('mPlay').textContent=$('mBtn').textContent='⏸';
-  lyrics=parseLyrics(s.lyrics||'');
-  $('mLyr').innerHTML=lyrics.map((l,j)=>`<div class="mlyr-line" id="L${j}">${l.x}</div>`).join('');
-}
-
-function onTime(){
-  const t=audio.currentTime,d=audio.duration||0;
-  $('dSeek').value=t;$('dSeek').max=d;$('mSeek').value=t;$('mSeek').max=d;
-  if(!lyrics.length)return;
-  let ci=0;
-  if(lyrics[lyrics.length-1].t===0&&d){ci=Math.floor((t/d)*lyrics.length)}
-  else{for(let i=0;i<lyrics.length;i++)if(t>=lyrics[i].t)ci=i}
-  document.querySelectorAll('.mlyr-line').forEach((el,j)=>{el.classList.toggle('on',j===ci);if(j===ci)el.scrollIntoView({behavior:'smooth',block:'center'})});
-}
-
-function onMeta(){
-  const d=audio.duration;if(!d||isNaN(d))return;
-  const s=songs[idx];if(!s)return;
-  durs[s.url]=d;renderAll();
-  if(s.buf){const k=(await keys()).find(x=>x.startsWith('s_')&&x.includes(s.title));if(k){const o=await get(k);o.duration=d;await set(k,o)}}
-}
-
-function toggle(){if(audio.paused){audio.play();$('dPlay').textContent=$('mPlay').textContent=$('mBtn').textContent='⏸'}else{audio.pause();$('dPlay').textContent=$('mPlay').textContent=$('mBtn').textContent='▶'}}
-function prev(){if(idx>0)play(idx-1)}
-function next(){if(idx<songs.length-1)play(idx+1)}
-
-async function addFiles(e){
-  for(const f of e.target.files){
-    const buf=await f.arrayBuffer(),n=f.name.replace(/\.[^.]+$/,'');
-    const s=await new Promise(r=>readTags(URL.createObjectURL(new Blob([buf])),t=>r({...t,title:t.title||n,type:f.type,buf})));
-    await set('s_'+Date.now()+'_'+n,s);
-    if(cur==='local'){songs.push(s);renderAll();}
-  }
-}
-
-window.switchTab=(t,el)=>{cur=t;document.querySelectorAll('.mtab').forEach(x=>x.classList.remove('active'));el.classList.add('active');t==='cloud'?loadCloud():loadLocal()};
-window.toggle=toggle;window.prev=prev;window.next=next;window.addFiles=addFiles;window.onTime=onTime;window.onMeta=onMeta;
-
-loadCloud();
-</script>
-</body>
-</html>
+    d.innerHTML=`<img src="${s.art||''}" onerror="this.style.opacity=0"><div><div class="t">${s.title
